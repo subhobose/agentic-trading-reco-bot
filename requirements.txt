@@ -1,0 +1,9 @@
+pandas
+numpy
+yfinance
+ta
+ollama
+schedule
+robin-stocks
+python-dotenv
+requests

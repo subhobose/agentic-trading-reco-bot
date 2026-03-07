@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+
+# Generated outputs
+data/stock_data.json
+data/technical_analysis.json
+data/sentiment_analysis.json
+data/risk_report.json
+data/recommendations.json
+reports/daily_report.md
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
