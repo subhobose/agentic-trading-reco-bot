@@ -1,9 +1,6 @@
-pandas
-numpy
-yfinance
-ta
+requests
+beautifulsoup4
 ollama
-schedule
 robin-stocks
 python-dotenv
-requests
+

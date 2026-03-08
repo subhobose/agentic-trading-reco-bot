@@ -1,0 +1,21 @@
+[2026-03-08 14:03:34] Run started
+Mode: full
+--------------------------------------------------------------------------------
+[2026-03-08 14:05:55] Pipeline output
+[1/4] Getting holdings...
+Starting login process...
+Logged out successfully.
+[2/4] Running market AI scraping agent...
+[3/4] Running opportunity scan agent...
+[4/4] Writing report...
+[done] Report: D:\CodingProjects\TradingAgent\reports\daily_report.md
+[done] Agent market payload: D:\CodingProjects\TradingAgent\data\agent_market_view.json
+[done] Opportunity payload: D:\CodingProjects\TradingAgent\data\opportunity_recommendations.json
+--------------------------------------------------------------------------------
+[2026-03-08 14:05:56] Email sent
+Subject: [SUCCESS] Trading Agent Daily Run - 2026-03-08 14:03:34
+To: subhobose99@gmail.com
+--------------------------------------------------------------------------------
+[2026-03-08 14:05:56] Run completed
+Status: SUCCESS
+--------------------------------------------------------------------------------

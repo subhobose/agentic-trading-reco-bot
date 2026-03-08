@@ -1,158 +1,176 @@
-const fmtMoney = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-const fmtPct = (n) => `${(n * 100).toFixed(1)}%`;
-
-async function getJson(path) {
+async function loadJson(path) {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`Failed to load ${path}`);
+  if (!res.ok) throw new Error(`Unable to load ${path}`);
   return res.json();
 }
 
-function riskClass(level) {
-  if (level === "high") return "sell";
-  if (level === "moderate") return "hold";
-  return "buy";
+function tag(action) {
+  const a = (action || "hold").toLowerCase();
+  const cls = a === "buy" ? "buy" : a === "sell" ? "sell" : "hold";
+  return `<span class="tag ${cls}">${a.toUpperCase()}</span>`;
 }
 
-function setHeader(recData, riskData, sentData) {
-  const date = (recData.generated_at || "").slice(0, 10) || "Unknown Date";
-  document.getElementById("report-date").textContent = `Report ${date}`;
-  const pill = document.getElementById("risk-pill");
-  const level = riskData.risk_level || "unknown";
-  pill.textContent = `Risk: ${level.toUpperCase()}`;
-  pill.classList.add("tag", riskClass(level));
-  document.getElementById("metric-model").textContent = sentData.model || "--";
+function renderMetrics(data) {
+  const stocks = data.stocks || {};
+  const entries = Object.entries(stocks);
+  document.getElementById("metric-tickers").textContent = entries.length;
 }
 
-function setMetrics(recData, riskData) {
-  const recs = recData.recommendations || {};
-  const values = riskData.portfolio_values || {};
-  const totalValue = Object.values(values).reduce((a, b) => a + b, 0);
-
-  document.getElementById("metric-positions").textContent = Object.keys(recs).length;
-  document.getElementById("metric-value").textContent = totalValue ? fmtMoney.format(totalValue) : "--";
-  document.getElementById("metric-risk").textContent = `${riskData.risk_score ?? "--"}/100`;
-}
-
-function setRecommendationTable(recData) {
-  const body = document.getElementById("recommendation-body");
-  body.innerHTML = "";
-  const recs = recData.recommendations || {};
-  Object.entries(recs).forEach(([symbol, data]) => {
-    const action = (data.decision || "HOLD").toLowerCase();
+function renderTickerTable(data) {
+  const tbody = document.getElementById("tickerBody");
+  tbody.innerHTML = "";
+  const entries = Object.entries(data.stocks || {});
+  const holdings = data.holdings || {};
+  entries.forEach(([symbol, stock]) => {
+    const ai = stock.ai_view || {};
+    const holding = holdings[symbol] || {};
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${symbol}</td>
-      <td><span class="tag ${action}">${(data.decision || "HOLD").toUpperCase()}</span></td>
-      <td>${data.confidence ?? "--"}%</td>
-      <td>${typeof data.position_weight === "number" ? fmtPct(data.position_weight) : "--"}</td>
+      <td>${tag(ai.action_bias)}</td>
+      <td>${String(ai.sentiment || "neutral").toUpperCase()}</td>
+      <td>${ai.confidence ?? 0}%</td>
+      <td>${ai.current_price != null ? `$${ai.current_price}` : "--"}</td>
+      <td>${holding.shares ?? 0}</td>
+      <td>${holding.position_value != null ? `$${holding.position_value}` : "$0"}</td>
+      <td>${ai.price_change_1d_pct ?? 0}%</td>
+      <td>${String(ai.portfolio_action_plan || "hold").toUpperCase()}</td>
+      <td class="summary">${ai.portfolio_justification || ""}</td>
+      <td class="summary">${ai.summary || ""}</td>
     `;
-    body.appendChild(tr);
+    tbody.appendChild(tr);
   });
 }
 
-function renderAllocation(riskData) {
-  const values = riskData.portfolio_values || {};
-  new Chart(document.getElementById("allocationChart"), {
-    type: "doughnut",
-    data: {
-      labels: Object.keys(values),
-      datasets: [
-        {
-          data: Object.values(values),
-          backgroundColor: ["#2c78ff", "#ff5f7f", "#1ff1a2", "#ffc857", "#88a4ff"],
-        },
-      ],
-    },
-    options: {
-      plugins: { legend: { labels: { color: "#dce7ff" } } },
-    },
+function renderErrors(data) {
+  const list = document.getElementById("errorList");
+  list.innerHTML = "";
+  const errors = data.errors || {};
+  const keys = Object.keys(errors);
+  if (!keys.length) {
+    const li = document.createElement("li");
+    li.textContent = "No errors.";
+    list.appendChild(li);
+    return;
+  }
+  keys.forEach((symbol) => {
+    const li = document.createElement("li");
+    li.textContent = `${symbol}: ${errors[symbol]}`;
+    list.appendChild(li);
   });
 }
 
-function renderRsi(techData) {
-  const map = techData.analysis || {};
-  const labels = Object.keys(map);
-  const data = labels.map((s) => map[s]?.rsi ?? 0);
-  new Chart(document.getElementById("rsiChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "RSI",
-          data,
-          backgroundColor: "#2c78ff",
-          borderRadius: 8,
-        },
-      ],
-    },
-    options: {
-      scales: {
-        y: { min: 0, max: 100, ticks: { color: "#dce7ff" }, grid: { color: "rgba(255,255,255,0.08)" } },
-        x: { ticks: { color: "#dce7ff" }, grid: { display: false } },
-      },
-      plugins: { legend: { display: false } },
-    },
-  });
+function renderOpportunities(opData) {
+  const buyBody = document.getElementById("oppsBody");
+  const shortBody = document.getElementById("shortOppsBody");
+  buyBody.innerHTML = "";
+  shortBody.innerHTML = "";
+  const buyRecs = opData?.buy_ideas || [];
+  const shortRecs = opData?.short_ideas || [];
+  document.getElementById("metric-opps-buy").textContent = buyRecs.length;
+  document.getElementById("metric-opps-short").textContent = shortRecs.length;
+
+  if (!buyRecs.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="5">No buy opportunities generated in this run.</td>`;
+    buyBody.appendChild(tr);
+  } else {
+    buyRecs.forEach((rec) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${rec.symbol || ""}</td>
+        <td>${tag("buy")}</td>
+        <td>${rec.confidence ?? 0}%</td>
+        <td>${rec.current_price != null ? `$${rec.current_price}` : "--"}</td>
+        <td class="summary">${rec.reason || ""}</td>
+      `;
+      buyBody.appendChild(tr);
+    });
+  }
+
+  if (!shortRecs.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="5">No short opportunities generated in this run.</td>`;
+    shortBody.appendChild(tr);
+  } else {
+    shortRecs.forEach((rec) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${rec.symbol || ""}</td>
+        <td>${tag("sell")}</td>
+        <td>${rec.confidence ?? 0}%</td>
+        <td>${rec.current_price != null ? `$${rec.current_price}` : "--"}</td>
+        <td class="summary">${rec.reason || ""}</td>
+      `;
+      shortBody.appendChild(tr);
+    });
+  }
 }
 
-function renderSentiment(sentData) {
-  const map = sentData.analysis || {};
-  const labels = Object.keys(map);
-  const data = labels.map((s) => map[s]?.confidence ?? 0);
-  const colors = labels.map((s) => {
-    const sentiment = (map[s]?.sentiment || "neutral").toLowerCase();
-    if (sentiment === "bullish") return "#1ff1a2";
-    if (sentiment === "bearish") return "#ff5f7f";
-    return "#ffc857";
+function renderQuickSummary(data, opData) {
+  const root = document.getElementById("quickSummary");
+  const entries = Object.entries(data.stocks || {});
+  const grouped = { add: [], hold: [], reduce: [], exit: [] };
+  entries.forEach(([symbol, stock]) => {
+    const ai = stock.ai_view || {};
+    const plan = String(ai.portfolio_action_plan || "hold").toLowerCase();
+    if (grouped[plan]) grouped[plan].push(symbol);
+    else grouped.hold.push(symbol);
   });
-  new Chart(document.getElementById("sentimentChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Sentiment Confidence",
-          data,
-          backgroundColor: colors,
-          borderRadius: 8,
-        },
-      ],
-    },
-    options: {
-      scales: {
-        y: { min: 0, max: 100, ticks: { color: "#dce7ff" }, grid: { color: "rgba(255,255,255,0.08)" } },
-        x: { ticks: { color: "#dce7ff" }, grid: { display: false } },
-      },
-      plugins: { legend: { display: false } },
-    },
-  });
+
+  const asPills = (symbols, cls) =>
+    symbols.length
+      ? symbols.map((s) => `<span class="summary-pill ${cls}">${s}</span>`).join("")
+      : '<span class="summary-pill none">None</span>';
+
+  const buy = (opData?.buy_ideas || []).map((r) => r.symbol).filter(Boolean);
+  const short = (opData?.short_ideas || []).map((r) => r.symbol).filter(Boolean);
+
+  root.innerHTML = `
+    <div class="summary-row">
+      <div class="label">ADD to Holdings</div>
+      <div class="value">${asPills(grouped.add, "add")}</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">REDUCE Holdings</div>
+      <div class="value">${asPills(grouped.reduce, "reduce")}</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">EXIT Holdings</div>
+      <div class="value">${asPills(grouped.exit, "exit")}</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">HOLD As-Is</div>
+      <div class="value">${asPills(grouped.hold, "hold")}</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">New Buy Ideas</div>
+      <div class="value">${asPills(buy, "buy")}</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">New Short Ideas</div>
+      <div class="value">${asPills(short, "short")}</div>
+    </div>
+  `;
 }
 
 async function init() {
   try {
-    const [recData, riskData, techData, sentData] = await Promise.all([
-      getJson("/data/recommendations.json"),
-      getJson("/data/risk_report.json"),
-      getJson("/data/technical_analysis.json"),
-      getJson("/data/sentiment_analysis.json"),
+    const [data, opData] = await Promise.all([
+      loadJson("/data/agent_market_view.json"),
+      loadJson("/data/opportunity_recommendations.json").catch(() => ({ recommendations: [] })),
     ]);
-
-    setHeader(recData, riskData, sentData);
-    setMetrics(recData, riskData);
-    setRecommendationTable(recData);
-    renderAllocation(riskData);
-    renderRsi(techData);
-    renderSentiment(sentData);
-  } catch (err) {
-    document.body.innerHTML = `<main class="container"><h1>Dashboard Error</h1><p>${err.message}</p></main>`;
+    const gen = data.generated_at ? data.generated_at.replace("T", " ").slice(0, 19) : "unknown";
+    const genOpp = opData.generated_at ? opData.generated_at.replace("T", " ").slice(0, 19) : "n/a";
+    document.getElementById("meta").textContent = `Generated: ${gen} | Holdings source: ${data.holdings_source || "unknown"} | Opportunities: ${genOpp}`;
+    renderMetrics(data);
+    renderQuickSummary(data, opData);
+    renderTickerTable(data);
+    renderErrors(data);
+    renderOpportunities(opData);
+  } catch (e) {
+    document.querySelector(".wrap").innerHTML = `<h1>Dashboard Error</h1><p>${e.message}</p>`;
   }
 }
 
 init();
-
